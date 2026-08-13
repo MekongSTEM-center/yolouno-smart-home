@@ -681,7 +681,6 @@ document.addEventListener('DOMContentLoaded', function() {
     mainDoorStateTopic: mqttTopic('V14'),
     autoDoorStateTopic: mqttTopic('V15'),
     buzzerStateTopic: mqttTopic('V16'),
-    deviceCmdTopic: mqttTopic('V20'),
     deviceStateTopic: mqttTopic('V20'),
     lightStatusTopic: mqttTopic('V1'),
     rgbStatusTopic: mqttTopic('V3'),
@@ -746,7 +745,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   const readBinaryState = (message) => {
     const normalized = String(message || '').trim().toUpperCase();
-    if (['1', 'ON', 'TRUE', 'YES', 'OPEN', 'DETECTED', 'HERE'].includes(normalized)) return true;
+    if (['1', 'ON', 'TRUE', 'YES', 'OPEN', 'DETECTED'].includes(normalized)) return true;
     if (['0', 'OFF', 'FALSE', 'NO', 'CLOSE', 'CLOSED', 'CLEAR', 'NONE'].includes(normalized)) return false;
     return null;
   };
@@ -831,7 +830,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
     mqttClient.on('connect', () => {
       isMqttConnected = true;
-      updateMqttStatus('Broker đã kết nối', '#7ca8ea');
+      // V20 retained message is the sole source of ESP32 presence. Set this
+      // neutral label before subscribing so a retained ONLINE/OFFLINE message
+      // can never be overwritten by the subscribe callback.
+      updateMqttStatus('Đã kết nối broker — chờ trạng thái ESP32', '#7ca8ea');
       
       mqttClient.subscribe(getMqttSubscribeTopics(), { qos: 0 }, (error) => {
         if (error) {
@@ -839,8 +841,6 @@ document.addEventListener('DOMContentLoaded', function() {
           console.warn('MQTT subscribe error:', error.message);
           return;
         }
-        // Nhờ LWT và Retained Message, dữ liệu ONLINE/OFFLINE sẽ tự động được trả về
-        updateMqttStatus('Đang kiểm tra trạng thái ESP32...', '#7ca8ea');
       });
       
       if (pendingMqttMessages.size) {

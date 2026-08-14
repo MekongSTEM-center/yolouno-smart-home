@@ -120,6 +120,8 @@ async def Hi_E1_BB_87u_ch_E1_BB_89nh_c_E1_BA_A3m_bi_E1_BA_BFn_gas():
 async def on_mqtt_msg_f_k_q_l(topic, msg):
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     msg = log_mqtt_message(topic, msg)
+    if consume_local_state_echo(topic, msg):
+        return
     last_LED_state = msg
     if msg == '1':
         rgb_led_D9.show(0, hex_to_rgb(color))
@@ -134,6 +136,7 @@ async def on_mqtt_msg_J_V_x_E(topic, msg):
         rgb_led_D9.show(0, hex_to_rgb(color))
 
 cfg = config.copy()
+cfg['topics'] = list(cfg.get('topics', []))
 MQTT_USER = 'luong873004'
 # The OhStem MQTT adapter accepts channel names (V1...V20) and maps them to
 # MQTT_USER + '/feeds/' + channel on the broker. Keep the short channel names
@@ -160,6 +163,13 @@ RFID_ERROR_RETRY_MS = 500
 RFID_OPEN_HOLD_MS = 4000
 RFID_BEEP_MS = 100
 GAS_READ_INTERVAL_MS = 1000
+LOCAL_STATE_ECHO_WINDOW_MS = 1500
+DOOR_COMMAND_DEDUP_WINDOW_MS = 500
+BUZZER_EVENT_DEDUP_WINDOW_MS = 500
+
+MQTT_COMMAND_CHANNELS = (
+    'V1', 'V3', 'V9', 'V10', 'V12', 'V13', 'V14', 'V15', 'V16'
+)
 
 def mqtt_text(value):
     """Normalize mqtt_as values for comparisons and hardware callbacks."""
@@ -183,6 +193,28 @@ def mqtt_channel(topic):
         return topic_text[len(prefix):]
     return topic_text
 
+local_state_echoes = {}
+
+def remember_local_state_echo(topic, payload):
+    channel = mqtt_channel(topic)
+    if channel in MQTT_COMMAND_CHANNELS:
+        local_state_echoes[(channel, mqtt_text(payload))] = time.ticks_ms()
+
+def consume_local_state_echo(topic, payload):
+    channel = mqtt_channel(topic)
+    key = (channel, mqtt_text(payload))
+    sent_at = local_state_echoes.get(key)
+    if sent_at is None:
+        return False
+
+    if time.ticks_diff(time.ticks_ms(), sent_at) > LOCAL_STATE_ECHO_WINDOW_MS:
+        local_state_echoes.pop(key, None)
+        return False
+
+    local_state_echoes.pop(key, None)
+    print('MQTT local state echo ignored:', channel, repr(key[1]))
+    return True
+
 def log_mqtt_message(topic, msg):
     topic_text = mqtt_text(topic)
     message_text = mqtt_text(msg)
@@ -191,6 +223,37 @@ def log_mqtt_message(topic, msg):
           'payload=', repr(message_text),
           'payload_type=', type(msg).__name__)
     return message_text
+
+async def publish_device_state(topic, value, retain=False):
+    if value is None:
+        print('MQTT state skipped: None payload for', mqtt_wire_topic(topic))
+        return False
+
+    payload = mqtt_text(value)
+    if payload.lower() == 'none' or payload == '':
+        print('MQTT state skipped: invalid payload for', mqtt_wire_topic(topic))
+        return False
+
+    echo_key = (mqtt_channel(topic), payload)
+    previous_echo_time = local_state_echoes.get(echo_key)
+    # Mark before awaiting the network operation so a fast broker echo cannot
+    # enter the command callback before the local-state filter is armed.
+    remember_local_state_echo(topic, payload)
+    published = await safe_publish(topic, payload, retain=retain)
+    if not published:
+        if previous_echo_time is None:
+            local_state_echoes.pop(echo_key, None)
+        else:
+            local_state_echoes[echo_key] = previous_echo_time
+    return published
+
+def register_mqtt_topic(channel, callback):
+    channel_text = mqtt_channel(channel)
+    registered = [mqtt_channel(item[0]) for item in cfg['topics']]
+    if channel_text in registered:
+        raise ValueError('Duplicate MQTT channel registration: ' + channel_text)
+    cfg['topics'].append((channel_text, callback))
+    print('MQTT topic registered:', channel_text)
 
 # --- CẤU HÌNH LWT ĐỂ XỬ LÝ HEARTBEAT TỰ ĐỘNG ---
 cfg['will'] = (TOPIC_DEVICE, 'OFFLINE', True, 0)
@@ -236,13 +299,28 @@ async def K_E1_BA_BFt_n_E1_BB_91i_Wifi():
     await asleep_ms(1000)
 
 async def Kh_E1_BB_9Fi__C4_91_E1_BB_99ng():
-    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
+    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng, buzzer_manual_on, buzzer_alarm_tone_on, buzzer_beep_active, gas_alarm_active, gas_alarm_task, last_door_command, last_door_command_ms
     RFID = '1'
     AUTO_LIGHT = '0'
+    last_fan_state = '0'
+    light = '0'
+    C_E1_BB_ADa = '0'
     last_LED_state = '0'
     auto_light_when_detect = '0'
     speed = '20'
     color = '#ff0000'
+    buzzer_manual_on = False
+    buzzer_alarm_tone_on = False
+    buzzer_beep_active = False
+    gas_alarm_active = False
+    gas_alarm_task = None
+    last_door_command = None
+    last_door_command_ms = 0
+    servo_D2.servo_write(0)
+    usb_switch_D3.write_analog(round(translate(0, 0, 100, 0, 1023)))
+    minifan_D4.write_analog(round(translate(0, 0, 100, 0, 1023)))
+    set_buzzer_output(False)
+    rgb_led_D9.show(0, hex_to_rgb('#000000'))
     neopix.show(0, hex_to_rgb('#ff0000'))
     await asleep_ms(1000)
     neopix.show(0, hex_to_rgb('#00ff00'))
@@ -252,6 +330,8 @@ async def Kh_E1_BB_9Fi__C4_91_E1_BB_99ng():
 async def on_mqtt_msg_c_A_i_o(topic, msg):
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     msg = log_mqtt_message(topic, msg)
+    if consume_local_state_echo(topic, msg):
+        return
     last_fan_state = msg
     if msg == '1':
         minifan_D4.write_analog(round(translate(speed, 0, 100, 0, 1023)))
@@ -261,6 +341,8 @@ async def on_mqtt_msg_c_A_i_o(topic, msg):
 async def on_mqtt_msg_y_z_p_e(topic, msg):
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     msg = log_mqtt_message(topic, msg)
+    if consume_local_state_echo(topic, msg):
+        return
     try:
         speed = max(0, min(100, int(msg)))
     except (TypeError, ValueError):
@@ -272,6 +354,8 @@ async def on_mqtt_msg_y_z_p_e(topic, msg):
 async def on_mqtt_msg_O_N_P_T(topic, msg):
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     msg = log_mqtt_message(topic, msg)
+    if consume_local_state_echo(topic, msg):
+        return
     light = msg
     if light == '1':
         usb_switch_D3.write_analog(round(translate(100, 0, 100, 0, 1023)))
@@ -296,53 +380,69 @@ async def Hi_E1_BB_83n_th_E1_BB_8B_ban__C4_91_E1_BA_A7u():
         await safe_publish(TOPIC_TEMPERATURE, Nhi_E1_BB_87t__C4_91_E1_BB_99)
         await safe_publish(TOPIC_HUMIDITY, _C4_90_E1_BB_99__E1_BA_A9m)
     await safe_publish(TOPIC_GAS, khi_gas)
-    await safe_publish(TOPIC_RGB_STATE, last_LED_state)
-    await safe_publish(TOPIC_FAN_STATE, last_fan_state)
-    await safe_publish(TOPIC_LIGHT_STATE, light)
-    await safe_publish(TOPIC_MOTION_LIGHT, auto_light_when_detect)
-    await safe_publish(TOPIC_MAIN_DOOR, C_E1_BB_ADa)
-    await safe_publish(TOPIC_RFID_DOOR, RFID)
-    await safe_publish(TOPIC_AUTO_LIGHT, AUTO_LIGHT)
+    await publish_device_state(TOPIC_RGB_STATE, last_LED_state)
+    await publish_device_state(TOPIC_FAN_STATE, last_fan_state)
+    await publish_device_state(TOPIC_LIGHT_STATE, light)
+    await publish_device_state(TOPIC_MOTION_LIGHT, auto_light_when_detect)
+    await publish_device_state(TOPIC_MAIN_DOOR, C_E1_BB_ADa)
+    await publish_device_state(TOPIC_RFID_DOOR, RFID)
+    await publish_device_state(TOPIC_AUTO_LIGHT, AUTO_LIGHT)
 
 async def on_mqtt_msg_V_d_z_u(topic, msg):
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     msg = log_mqtt_message(topic, msg)
+    if consume_local_state_echo(topic, msg):
+        return
     AUTO_LIGHT = msg
 
 async def on_mqtt_msg_motion_light(topic, msg):
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     msg = log_mqtt_message(topic, msg)
+    if consume_local_state_echo(topic, msg):
+        return
     if msg == '1':
         auto_light_when_detect = '1'
     else:
         auto_light_when_detect = '0'
 
 async def on_mqtt_msg_buzzer_manual(topic, msg):
-    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
+    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng, buzzer_manual_on
     msg = log_mqtt_message(topic, msg)
-    if msg == '1':
-        buzzer_D7.write_analog(round(translate(70, 0, 100, 0, 1023)))
-    else:
-        buzzer_D7.write_analog(round(translate(0, 0, 100, 0, 1023)))
+    if msg not in ('0', '1'):
+        print('MQTT invalid buzzer state:', repr(msg))
+        return
+    buzzer_manual_on = msg == '1'
+    update_buzzer_output()
 
 async def on_mqtt_msg_X_v_h_D(topic, msg):
-    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
+    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng, last_door_command, last_door_command_ms
     msg = log_mqtt_message(topic, msg)
+    if consume_local_state_echo(topic, msg):
+        return
     C_E1_BB_ADa = msg
+    if C_E1_BB_ADa not in ('0', '1'):
+        print('MQTT invalid door state:', repr(C_E1_BB_ADa))
+        return
+    if (C_E1_BB_ADa == last_door_command and
+            time.ticks_diff(time.ticks_ms(), last_door_command_ms) <= DOOR_COMMAND_DEDUP_WINDOW_MS):
+        print('MQTT duplicate door command ignored:', repr(C_E1_BB_ADa))
+        return
+    last_door_command = C_E1_BB_ADa
+    last_door_command_ms = time.ticks_ms()
     if C_E1_BB_ADa == '1':
         servo_D2.servo_write(100)
-        buzzer_D7.write_analog(round(translate(70, 0, 100, 0, 1023)))
-        await asleep_ms(100)
-        buzzer_D7.write_analog(round(translate(0, 0, 100, 0, 1023)))
     else:
         servo_D2.servo_write(0)
-        buzzer_D7.write_analog(round(translate(70, 0, 100, 0, 1023)))
-        await asleep_ms(100)
-        buzzer_D7.write_analog(round(translate(0, 0, 100, 0, 1023)))
+    await beep_once('dashboard-door-' + C_E1_BB_ADa, RFID_BEEP_MS)
 
 async def on_mqtt_msg_r_E_x_W(topic, msg):
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     msg = log_mqtt_message(topic, msg)
+    if consume_local_state_echo(topic, msg):
+        return
+    if msg not in ('0', '1'):
+        print('MQTT invalid RFID mode:', repr(msg))
+        return
     RFID = msg
     print(RFID)
 
@@ -362,14 +462,57 @@ _C3_81nh_s_C3_A1ng = None
 gas_alarm_active = False
 pir_motion_active = False
 rfid_card_active = False
+buzzer_manual_on = False
+buzzer_output_state = None
+buzzer_beep_active = False
+buzzer_alarm_tone_on = False
+buzzer_last_event_key = None
+buzzer_last_event_ms = 0
+gas_alarm_task = None
+last_door_command = None
+last_door_command_ms = 0
 mq_A2 = MQ2(pinData=A2_PIN)
 oled = SSD1306_I2C()
 servo_D2 = Pins(D2_PIN)
 buzzer_D7 = Pins(D7_PIN)
 rgb_led_D9 = RGBLed(D9_PIN, 4)
 
-cfg['topics'].append((TOPIC_RGB_STATE, on_mqtt_msg_f_k_q_l))
-cfg['topics'].append((TOPIC_RGB_COLOR, on_mqtt_msg_J_V_x_E))
+def set_buzzer_output(is_on):
+    global buzzer_output_state
+    desired = bool(is_on)
+    if buzzer_output_state == desired:
+        return
+    buzzer_output_state = desired
+    buzzer_D7.write_analog(round(translate(70 if desired else 0, 0, 100, 0, 1023)))
+    print('BUZZER output:', 'ON' if desired else 'OFF')
+
+def update_buzzer_output():
+    set_buzzer_output(buzzer_manual_on or buzzer_alarm_tone_on or buzzer_beep_active)
+
+async def beep_once(event_key, duration_ms=RFID_BEEP_MS):
+    global buzzer_beep_active, buzzer_last_event_key, buzzer_last_event_ms
+    now = time.ticks_ms()
+    if (event_key == buzzer_last_event_key and
+            time.ticks_diff(now, buzzer_last_event_ms) <= BUZZER_EVENT_DEDUP_WINDOW_MS):
+        print('BUZZER duplicate event ignored:', event_key)
+        return
+    if buzzer_beep_active:
+        print('BUZZER overlapping event ignored:', event_key)
+        return
+
+    buzzer_last_event_key = event_key
+    buzzer_last_event_ms = now
+    buzzer_beep_active = True
+    update_buzzer_output()
+    await asleep_ms(duration_ms)
+    buzzer_beep_active = False
+    update_buzzer_output()
+
+set_buzzer_output(False)
+
+register_mqtt_topic(TOPIC_RGB_STATE, on_mqtt_msg_f_k_q_l)
+register_mqtt_topic(TOPIC_RGB_COLOR, on_mqtt_msg_J_V_x_E)
+
 cfg['ssid'] = WIFI_SSID
 cfg['wifi_pw'] = WIFI_PASSWORD
 cfg['server'] = 'mqtt.ohstem.vn'
@@ -379,17 +522,17 @@ cfg['password'] = 'mekongstem@2025'
 
 dht20 = DHT20()
 minifan_D4 = Pins(D4_PIN)
-cfg['topics'].append((TOPIC_FAN_STATE, on_mqtt_msg_c_A_i_o))
 pir_D5 = Pins(D5_PIN)
-cfg['topics'].append((TOPIC_FAN_SPEED, on_mqtt_msg_y_z_p_e))
+register_mqtt_topic(TOPIC_FAN_STATE, on_mqtt_msg_c_A_i_o)
+register_mqtt_topic(TOPIC_FAN_SPEED, on_mqtt_msg_y_z_p_e)
 usb_switch_D3 = Pins(D3_PIN)
-cfg['topics'].append((TOPIC_LIGHT_STATE, on_mqtt_msg_O_N_P_T))
+register_mqtt_topic(TOPIC_LIGHT_STATE, on_mqtt_msg_O_N_P_T)
 light_A0 = Pins(A0_PIN)
-cfg['topics'].append((TOPIC_AUTO_LIGHT, on_mqtt_msg_V_d_z_u))
-cfg['topics'].append((TOPIC_MOTION_LIGHT, on_mqtt_msg_motion_light))
-cfg['topics'].append((TOPIC_MAIN_DOOR, on_mqtt_msg_X_v_h_D))
-cfg['topics'].append((TOPIC_RFID_DOOR, on_mqtt_msg_r_E_x_W))
-cfg['topics'].append((TOPIC_BUZZER, on_mqtt_msg_buzzer_manual))
+register_mqtt_topic(TOPIC_AUTO_LIGHT, on_mqtt_msg_V_d_z_u)
+register_mqtt_topic(TOPIC_MOTION_LIGHT, on_mqtt_msg_motion_light)
+register_mqtt_topic(TOPIC_MAIN_DOOR, on_mqtt_msg_X_v_h_D)
+register_mqtt_topic(TOPIC_RFID_DOOR, on_mqtt_msg_r_E_x_W)
+register_mqtt_topic(TOPIC_BUZZER, on_mqtt_msg_buzzer_manual)
 
 def deinit():
     mqtt_client.close()
@@ -418,40 +561,43 @@ async def task_on_event_u_F_P_I():
             neopix.show(0, hex_to_rgb('#00ff00'))
             servo_D2.servo_write(100)
             C_E1_BB_ADa = '1'
-            buzzer_D7.write_analog(round(translate(70, 0, 100, 0, 1023)))
-            await asleep_ms(RFID_BEEP_MS)
-            buzzer_D7.write_analog(round(translate(0, 0, 100, 0, 1023)))
-            await safe_publish(TOPIC_MAIN_DOOR, C_E1_BB_ADa)
+            await beep_once('rfid-valid-card', RFID_BEEP_MS)
+            await publish_device_state(TOPIC_MAIN_DOOR, C_E1_BB_ADa)
             await asleep_ms(RFID_OPEN_HOLD_MS)
             servo_D2.servo_write(0)
             C_E1_BB_ADa = '0'
-            await safe_publish(TOPIC_MAIN_DOOR, C_E1_BB_ADa)
+            await publish_device_state(TOPIC_MAIN_DOOR, C_E1_BB_ADa)
             neopix.show(0, hex_to_rgb('#000000'))
 
         await asleep_ms(RFID_SCAN_INTERVAL_MS)
 
 async def task_I_j_x_t():
-    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng, gas_alarm_active
+    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng, gas_alarm_active, gas_alarm_task, buzzer_alarm_tone_on
     while True:
         await asleep_ms(GAS_READ_INTERVAL_MS)
         khi_gas = round(await mq_A2.readLPG())
-        if khi_gas > 200 and not gas_alarm_active:
+        if khi_gas > 200 and not gas_alarm_active and gas_alarm_task is None:
             gas_alarm_active = True
-            create_task(task_on_message_1())
+            gas_alarm_task = create_task(task_on_message_1())
         elif khi_gas <= 200:
             gas_alarm_active = False
-            buzzer_D7.write_analog(round(translate(0, 0, 100, 0, 1023)))
+            buzzer_alarm_tone_on = False
+            update_buzzer_output()
         update_gas_oled()
         await publish_gas_safe()
 
 async def task_on_message_1():
-    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng, gas_alarm_active
+    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng, gas_alarm_active, gas_alarm_task, buzzer_alarm_tone_on
     while gas_alarm_active:
-        buzzer_D7.write_analog(round(translate(70, 0, 100, 0, 1023)))
+        buzzer_alarm_tone_on = True
+        update_buzzer_output()
         await asleep_ms(300)
-        buzzer_D7.write_analog(round(translate(0, 0, 100, 0, 1023)))
+        buzzer_alarm_tone_on = False
+        update_buzzer_output()
         await asleep_ms(300)
-    buzzer_D7.write_analog(round(translate(0, 0, 100, 0, 1023)))
+    buzzer_alarm_tone_on = False
+    gas_alarm_task = None
+    update_buzzer_output()
     if not gas_alarm_active:
         oled.fill(0); oled.show()
         await Hi_E1_BB_83n_th_E1_BB_8B_ban__C4_91_E1_BA_A7u()
@@ -577,7 +723,7 @@ async def task_on_event_R_g_c_l():
             if auto_light_when_detect == '1' and light != '1':
                 light = '1'
                 usb_switch_D3.write_analog(round(translate(100, 0, 100, 0, 1023)))
-                await safe_publish(TOPIC_LIGHT_STATE, light)
+                await publish_device_state(TOPIC_LIGHT_STATE, light)
         else:
             pir_motion_active = False
 
@@ -599,6 +745,8 @@ async def setup():
     print('App started')
     print('MQTT topic mapping:', 'V1 ->', mqtt_wire_topic(TOPIC_LIGHT_STATE),
           '| V20 ->', mqtt_wire_topic(TOPIC_DEVICE))
+    print('MQTT subscriptions:', len(cfg['topics']),
+          [mqtt_channel(item[0]) for item in cfg['topics']])
     print('Bắt đầu khởi động')
     await Kh_E1_BB_9Fi__C4_91_E1_BB_99ng()
     print('Đã khởi động xong')

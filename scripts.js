@@ -579,6 +579,12 @@ document.addEventListener('DOMContentLoaded', function() {
 // DASHBOARD & MQTT LOGIC
 // ==========================================
 document.addEventListener('DOMContentLoaded', function() {
+  if (window.__MEKONG_SMARTHOME_MQTT_BOOTSTRAPPED__) {
+    console.warn('MQTT dashboard logic already initialized; duplicate bootstrap skipped.');
+    return;
+  }
+  window.__MEKONG_SMARTHOME_MQTT_BOOTSTRAPPED__ = true;
+
   const rgbCard = document.getElementById('rgbLedCard');
   const rgbIcon = document.getElementById('rgbLedIcon');
   const rgbStatus = document.getElementById('rgbLedStatus');
@@ -727,6 +733,9 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Tích hợp LWT, bỏ các timer dư thừa
   let mqttClient = null;
+  let mqttClientId = null;
+  let mqttPublishCount = 0;
+  let mqttReceiveCount = 0;
   let isMqttConnected = false;
   let pendingMqttMessages = new Map();
 
@@ -894,8 +903,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
     updateMqttStatus('Đang kết nối MQTT...', '#7ca8ea');
 
+    mqttClientId = `mekongstem_web_${Math.random().toString(16).slice(2, 10)}`;
+    mqttPublishCount = 0;
+    mqttReceiveCount = 0;
+    console.info('MQTT client created:', {
+      clientId: mqttClientId,
+      url: mqttConfig.url,
+      topicRoot: mqttConfig.topicRoot,
+    });
+
     mqttClient = mqtt.connect(mqttConfig.url, {
-      clientId: `mekongstem_web_${Math.random().toString(16).slice(2, 10)}`,
+      clientId: mqttClientId,
       username: mqttConfig.username,
       password: mqttConfig.password,
       clean: true,
@@ -905,6 +923,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     mqttClient.on('connect', () => {
       isMqttConnected = true;
+      console.info('MQTT connected:', {
+        clientId: mqttClientId,
+        publishCount: mqttPublishCount,
+        receiveCount: mqttReceiveCount,
+      });
       // V20 retained message is the sole source of ESP32 presence. Set this
       // neutral label before subscribing so a retained ONLINE/OFFLINE message
       // can never be overwritten by the subscribe callback.
@@ -956,7 +979,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
     mqttClient.on('message', (topic, payload) => {
       const message = payload.toString().trim();
-      console.info('MQTT receive:', topic, message);
+      mqttReceiveCount += 1;
+      console.info('MQTT receive:', {
+        clientId: mqttClientId,
+        sequence: mqttReceiveCount,
+        timestamp: new Date().toISOString(),
+        topic,
+        payload: message,
+      });
 
       if (topic === mqttConfig.deviceStateTopic) {
         handleEspStateMessage(message);
@@ -1033,6 +1063,14 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
 
+    mqttPublishCount += 1;
+    const publishRecord = {
+      clientId: mqttClientId,
+      sequence: mqttPublishCount,
+      timestamp: new Date().toISOString(),
+      topic,
+      payload: String(message),
+    };
     mqttClient.publish(topic, message, {
       qos: 0,
       retain: false,
@@ -1041,7 +1079,7 @@ document.addEventListener('DOMContentLoaded', function() {
         onPublished(error || null);
       }
     });
-    console.info('MQTT publish:', topic, message);
+    console.info('MQTT publish:', publishRecord);
   };
 
   const toBinaryStatePayload = (isOn) => (isOn ? '1' : '0');

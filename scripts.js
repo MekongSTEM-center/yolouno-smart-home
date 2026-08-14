@@ -829,8 +829,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const state = readBinaryState(message);
     if (state === null) return;
 
-    resolveControlCommand(topic, state, message);
-
     if (topic === mqttConfig.rgbStatusTopic) {
       if (state) {
         if (rgbToggle && rgbToggle.checked !== true) rgbToggle.checked = true;
@@ -1046,63 +1044,10 @@ document.addEventListener('DOMContentLoaded', function() {
     console.info('MQTT publish:', topic, message);
   };
 
-  const pendingControlCommands = new Map();
-  const CONTROL_ACK_TIMEOUT_MS = 3000;
-
-  const trackControlCommand = (topic, message) => {
-    const expectedState = readBinaryState(message);
-    if (expectedState === null) return;
-
-    const previous = pendingControlCommands.get(topic);
-    if (previous?.timeoutId) window.clearTimeout(previous.timeoutId);
-
-    const timeoutId = window.setTimeout(() => {
-      const pending = pendingControlCommands.get(topic);
-      if (pending?.message === String(message)) {
-        console.warn('MQTT control acknowledgement timeout:', {
-          topic,
-          expectedPayload: String(message),
-        });
-        pendingControlCommands.delete(topic);
-      }
-    }, CONTROL_ACK_TIMEOUT_MS);
-
-    pendingControlCommands.set(topic, {
-      message: String(message),
-      expectedState,
-      timeoutId,
-      sentAt: Date.now(),
-    });
-  };
-
-  function resolveControlCommand(topic, state, message) {
-    const pending = pendingControlCommands.get(topic);
-    if (!pending) return;
-
-    const normalizedMessage = String(message);
-    if (pending.expectedState !== state) {
-      console.warn('MQTT control acknowledgement mismatch:', {
-        topic,
-        expectedPayload: pending.message,
-        receivedPayload: normalizedMessage,
-      });
-      return;
-    }
-
-    window.clearTimeout(pending.timeoutId);
-    pendingControlCommands.delete(topic);
-    console.info('MQTT control state observed:', {
-      topic,
-      payload: normalizedMessage,
-      latencyMs: Date.now() - pending.sentAt,
-    });
-  }
-
   const toBinaryStatePayload = (isOn) => (isOn ? '1' : '0');
 
   const sendRgbState = (isOn) => {
     const payload = toBinaryStatePayload(isOn);
-    trackControlCommand(mqttConfig.rgbStateTopic, payload);
     publishMqttMessage(mqttConfig.rgbStateTopic, payload);
   };
 
@@ -1112,7 +1057,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
   const sendFanState = (isOn) => {
     const payload = toBinaryStatePayload(isOn);
-    trackControlCommand(mqttConfig.fanStateTopic, payload);
     publishMqttMessage(mqttConfig.fanStateTopic, payload);
   };
 
@@ -1123,37 +1067,31 @@ document.addEventListener('DOMContentLoaded', function() {
 
   const sendBuzzerState = (isOn) => {
     const payload = toBinaryStatePayload(isOn);
-    trackControlCommand(mqttConfig.buzzerStateTopic, payload);
     publishMqttMessage(mqttConfig.buzzerStateTopic, payload);
   };
 
   const sendMotionLightState = (isOn) => {
     const payload = toBinaryStatePayload(isOn);
-    trackControlCommand(mqttConfig.motionLightStateTopic, payload);
     publishMqttMessage(mqttConfig.motionLightStateTopic, payload);
   };
 
   const sendMainDoorState = (isOn) => {
     const payload = toBinaryStatePayload(isOn);
-    trackControlCommand(mqttConfig.mainDoorStateTopic, payload);
     publishMqttMessage(mqttConfig.mainDoorStateTopic, payload);
   };
 
   const sendAutoDoorState = (isOn) => {
     const payload = toBinaryStatePayload(isOn);
-    trackControlCommand(mqttConfig.autoDoorStateTopic, payload);
     publishMqttMessage(mqttConfig.autoDoorStateTopic, payload);
   };
 
   const sendLightState = (isOn) => {
     const payload = toBinaryStatePayload(isOn);
-    trackControlCommand(mqttConfig.lightStateTopic, payload);
     publishMqttMessage(mqttConfig.lightStateTopic, payload);
   };
 
   const sendAutoLightState = (isOn) => {
     const payload = toBinaryStatePayload(isOn);
-    trackControlCommand(mqttConfig.autoLightTopic, payload);
     publishMqttMessage(mqttConfig.autoLightTopic, payload);
   };
 

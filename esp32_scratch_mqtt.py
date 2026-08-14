@@ -120,14 +120,11 @@ async def Hi_E1_BB_87u_ch_E1_BB_89nh_c_E1_BA_A3m_bi_E1_BA_BFn_gas():
 async def on_mqtt_msg_f_k_q_l(topic, msg):
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     msg = log_mqtt_message(topic, msg)
-    if consume_feedback_echo(topic, msg):
-        return
     last_LED_state = msg
     if msg == '1':
         rgb_led_D9.show(0, hex_to_rgb(color))
     else:
         rgb_led_D9.show(0, hex_to_rgb('#000000'))
-    await publish_control_feedback(TOPIC_RGB_STATE, last_LED_state)
 
 async def on_mqtt_msg_J_V_x_E(topic, msg):
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
@@ -195,35 +192,6 @@ def log_mqtt_message(topic, msg):
           'payload_type=', type(msg).__name__)
     return message_text
 
-# The command and state use the same OhStem channel. mqtt_as may deliver a
-# device's own state publish back to its subscription, so suppress one matching
-# echo to avoid an acknowledgement loop.
-mqtt_feedback_guard = {}
-MQTT_FEEDBACK_GUARD_MS = 1500
-
-def consume_feedback_echo(topic, msg):
-    channel = mqtt_channel(topic)
-    expected = mqtt_feedback_guard.get(channel)
-    if expected is None:
-        return False
-
-    now = time.ticks_ms()
-    if time.ticks_diff(now, expected[1]) > MQTT_FEEDBACK_GUARD_MS:
-        mqtt_feedback_guard.pop(channel, None)
-        return False
-    if expected[0] != mqtt_text(msg):
-        return False
-
-    mqtt_feedback_guard.pop(channel, None)
-    print('MQTT feedback echo ignored:', channel, repr(expected[0]))
-    return True
-
-async def publish_control_feedback(topic, value):
-    channel = mqtt_channel(topic)
-    payload = mqtt_text(value)
-    mqtt_feedback_guard[channel] = (payload, time.ticks_ms())
-    await safe_publish(channel, payload)
-
 # --- CẤU HÌNH LWT ĐỂ XỬ LÝ HEARTBEAT TỰ ĐỘNG ---
 cfg['will'] = (TOPIC_DEVICE, 'OFFLINE', True, 0)
 
@@ -284,20 +252,15 @@ async def Kh_E1_BB_9Fi__C4_91_E1_BB_99ng():
 async def on_mqtt_msg_c_A_i_o(topic, msg):
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     msg = log_mqtt_message(topic, msg)
-    if consume_feedback_echo(topic, msg):
-        return
     last_fan_state = msg
     if msg == '1':
         minifan_D4.write_analog(round(translate(speed, 0, 100, 0, 1023)))
     else:
         minifan_D4.write_analog(round(translate(0, 0, 100, 0, 1023)))
-    await publish_control_feedback(TOPIC_FAN_STATE, last_fan_state)
 
 async def on_mqtt_msg_y_z_p_e(topic, msg):
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     msg = log_mqtt_message(topic, msg)
-    if consume_feedback_echo(topic, msg):
-        return
     try:
         speed = max(0, min(100, int(msg)))
     except (TypeError, ValueError):
@@ -305,19 +268,15 @@ async def on_mqtt_msg_y_z_p_e(topic, msg):
         return
     if last_fan_state == '1':
         minifan_D4.write_analog(round(translate(speed, 0, 100, 0, 1023)))
-    await publish_control_feedback(TOPIC_FAN_SPEED, speed)
 
 async def on_mqtt_msg_O_N_P_T(topic, msg):
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     msg = log_mqtt_message(topic, msg)
-    if consume_feedback_echo(topic, msg):
-        return
     light = msg
     if light == '1':
         usb_switch_D3.write_analog(round(translate(100, 0, 100, 0, 1023)))
     else:
         usb_switch_D3.write_analog(round(translate(0, 0, 100, 0, 1023)))
-    await publish_control_feedback(TOPIC_LIGHT_STATE, light)
 
 async def Hi_E1_BB_83n_th_E1_BB_8B_ban__C4_91_E1_BA_A7u():
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
@@ -348,38 +307,27 @@ async def Hi_E1_BB_83n_th_E1_BB_8B_ban__C4_91_E1_BA_A7u():
 async def on_mqtt_msg_V_d_z_u(topic, msg):
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     msg = log_mqtt_message(topic, msg)
-    if consume_feedback_echo(topic, msg):
-        return
     AUTO_LIGHT = msg
-    await publish_control_feedback(TOPIC_AUTO_LIGHT, AUTO_LIGHT)
 
 async def on_mqtt_msg_motion_light(topic, msg):
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     msg = log_mqtt_message(topic, msg)
-    if consume_feedback_echo(topic, msg):
-        return
     if msg == '1':
         auto_light_when_detect = '1'
     else:
         auto_light_when_detect = '0'
-    await publish_control_feedback(TOPIC_MOTION_LIGHT, auto_light_when_detect)
 
 async def on_mqtt_msg_buzzer_manual(topic, msg):
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     msg = log_mqtt_message(topic, msg)
-    if consume_feedback_echo(topic, msg):
-        return
     if msg == '1':
         buzzer_D7.write_analog(round(translate(70, 0, 100, 0, 1023)))
     else:
         buzzer_D7.write_analog(round(translate(0, 0, 100, 0, 1023)))
-    await publish_control_feedback(TOPIC_BUZZER, msg)
 
 async def on_mqtt_msg_X_v_h_D(topic, msg):
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     msg = log_mqtt_message(topic, msg)
-    if consume_feedback_echo(topic, msg):
-        return
     C_E1_BB_ADa = msg
     if C_E1_BB_ADa == '1':
         servo_D2.servo_write(100)
@@ -391,16 +339,12 @@ async def on_mqtt_msg_X_v_h_D(topic, msg):
         buzzer_D7.write_analog(round(translate(70, 0, 100, 0, 1023)))
         await asleep_ms(100)
         buzzer_D7.write_analog(round(translate(0, 0, 100, 0, 1023)))
-    await publish_control_feedback(TOPIC_MAIN_DOOR, C_E1_BB_ADa)
 
 async def on_mqtt_msg_r_E_x_W(topic, msg):
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     msg = log_mqtt_message(topic, msg)
-    if consume_feedback_echo(topic, msg):
-        return
     RFID = msg
     print(RFID)
-    await publish_control_feedback(TOPIC_RFID_DOOR, RFID)
 
 khi_gas = None
 RFID = None

@@ -638,6 +638,141 @@
       white-space: nowrap;
     }
 
+    .mqtt-settings-card {
+      padding: 1.35rem 1.35rem 1.1rem;
+      border: 1px solid #cbd9ea;
+      border-radius: 0.85rem;
+      background: #ffffff;
+      box-shadow: 0 8px 24px -12px rgba(42, 94, 169, 0.22), 0 2px 4px -1px rgba(15, 23, 42, 0.05);
+    }
+
+    .mqtt-settings-card__header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.05rem;
+    }
+
+    .mqtt-settings-card__eyebrow {
+      margin: 0;
+      color: #22934b;
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+    }
+
+    .mqtt-settings-card__header h2 {
+      margin: 0.05rem 0 0;
+      color: #172238;
+      font-size: 1.65rem;
+      line-height: 1.05;
+      font-weight: 800;
+    }
+
+    .mqtt-settings-card__icon {
+      width: 3rem;
+      height: 3rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #cbd9ea;
+      border-radius: 0.75rem;
+      color: #172238;
+      font-size: 1.1rem;
+      flex: 0 0 auto;
+    }
+
+    .mqtt-settings-form {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.65rem 0.85rem;
+    }
+
+    .mqtt-field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      min-width: 0;
+    }
+
+    .mqtt-field > span {
+      color: #64748b;
+      font-size: 0.82rem;
+      font-weight: 800;
+    }
+
+    .mqtt-field input {
+      width: 100%;
+      min-height: 3rem;
+      padding: 0.7rem 0.8rem;
+      border: 1px solid #cbd9ea;
+      border-radius: 0.7rem;
+      background: #fbfdff;
+      color: #172238;
+      font-size: 1rem;
+      font-weight: 650;
+      outline: none;
+      transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+    }
+
+    .mqtt-field input:focus {
+      border-color: #22934b;
+      background: #ffffff;
+      box-shadow: 0 0 0 2px rgba(34, 147, 75, 0.14);
+    }
+
+    .mqtt-field input::placeholder {
+      color: #94a3b8;
+      font-size: 0.78rem;
+      font-weight: 500;
+    }
+
+    .mqtt-save-button {
+      grid-column: 1 / -1;
+      min-height: 3rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.55rem;
+      margin-top: 0.05rem;
+      border: 0;
+      border-radius: 0.65rem;
+      background: #22934b;
+      color: #ffffff;
+      font-size: 1.05rem;
+      font-weight: 800;
+      cursor: pointer;
+      transition: background-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+    }
+
+    .mqtt-save-button:hover,
+    .mqtt-save-button:focus-visible {
+      background: #1d7f41;
+      box-shadow: 0 6px 14px rgba(34, 147, 75, 0.2);
+      transform: translateY(-1px);
+      outline: none;
+    }
+
+    .mqtt-topic-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 1.05rem;
+    }
+
+    .mqtt-topic-chip {
+      padding: 0.38rem 0.65rem;
+      border: 1px solid #dbe4ef;
+      border-radius: 9999px;
+      background: #f8fafc;
+      color: #64748b;
+      font-size: 0.78rem;
+      font-weight: 750;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
     @media (max-width: 1180px) {
       [data-purpose="main-header"] {
         align-items: flex-start;
@@ -663,6 +798,14 @@
       .header-user,
       .header-connection {
         flex: 1 1 13rem;
+      }
+
+      .mqtt-settings-form {
+        grid-template-columns: 1fr;
+      }
+
+      .mqtt-settings-card {
+        padding: 1rem;
       }
     }
 

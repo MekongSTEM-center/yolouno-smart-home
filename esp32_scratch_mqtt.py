@@ -10,24 +10,97 @@ from dht20 import *
 # --- THÊM THƯ VIỆN CHO HÀM WIFI ---
 import network
 import time
+try:
+    import usocket as socket
+except ImportError:
+    import socket
+
+WIFI_SSID = 'MEKONG STEM 5G'
+WIFI_PASSWORD = 'Mekong2025'
+INTERNET_TEST_HOST = 'example.com'
+INTERNET_TEST_PORT = 80
+INTERNET_TEST_TIMEOUT_S = 3
+WIFI_CONNECT_TIMEOUT_S = 20
+MQTT_WATCHDOG_INTERVAL_MS = 15000
+
+wlan = network.WLAN(network.STA_IF)
 
 # --- HÀM KẾT NỐI WIFI CỦA BẠN ĐÃ ĐƯỢC ĐÓNG GÓI ---
 def connect_custom_wifi():
-    wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
-    wlan.disconnect()
-    time.sleep(1)
+    if wlan.isconnected():
+        print('WiFi already connected. IP:', wlan.ifconfig()[0])
+        return True
+
     print("Connecting...")
-    wlan.connect("MEKONG STEM 5G", "Mekong2025")
-    for i in range(20):
+    try:
+        wlan.connect(WIFI_SSID, WIFI_PASSWORD)
+    except Exception as e:
+        print('WiFi connect request failed:', e)
+        return False
+
+    for i in range(WIFI_CONNECT_TIMEOUT_S):
         print(i, "status =", wlan.status())
         if wlan.isconnected():
             print("CONNECTED!")
             print("IP:", wlan.ifconfig())
-            break
+            return True
         time.sleep(1)
     print("Final:", wlan.status())
     print("Config:", wlan.ifconfig())
+    return wlan.isconnected()
+
+async def ensure_wifi_connection(force_reconnect=False):
+    wlan.active(True)
+    if wlan.isconnected() and not force_reconnect:
+        return True
+
+    if force_reconnect:
+        print('WiFi connected but internet is unavailable. Reconnecting WiFi...')
+        try:
+            wlan.disconnect()
+        except Exception as e:
+            print('WiFi disconnect error:', e)
+        await asleep_ms(500)
+
+    try:
+        wlan.connect(WIFI_SSID, WIFI_PASSWORD)
+    except Exception as e:
+        print('WiFi connect request failed:', e)
+        return False
+
+    for i in range(WIFI_CONNECT_TIMEOUT_S):
+        if wlan.isconnected():
+            print('Wifi connected. IP:', wlan.ifconfig()[0])
+            return True
+        await asleep_ms(1000)
+
+    print('WiFi reconnect timeout. Status:', wlan.status())
+    return wlan.isconnected()
+
+def check_internet():
+    if not wlan.isconnected():
+        print('Checking WiFi integrity: WiFi is disconnected.')
+        return False
+
+    print('Checking WiFi integrity.')
+    test_socket = None
+    try:
+        test_socket = socket.socket()
+        test_socket.settimeout(INTERNET_TEST_TIMEOUT_S)
+        address = socket.getaddrinfo(INTERNET_TEST_HOST, INTERNET_TEST_PORT)[0][-1]
+        test_socket.connect(address)
+        print('Internet available.')
+        return True
+    except Exception as e:
+        print('Internet check failed:', e)
+        return False
+    finally:
+        if test_socket is not None:
+            try:
+                test_socket.close()
+            except Exception:
+                pass
 # --------------------------------------------------
 
 async def Hi_E1_BB_87u_ch_E1_BB_89nh_c_E1_BA_A3m_bi_E1_BA_BFn_gas():
@@ -111,17 +184,15 @@ def update_gas_oled():
         oled.text(str((''.join([str(x) for x in ['Khi gas:', khi_gas, 'ppm']]))), 1-1, 45-1, 1); oled.show()
 
 async def publish_gas_safe():
-    try:
-        await mqtt_client.publish(TOPIC_GAS, khi_gas)
-    except Exception as e:
-        print('Gas MQTT publish error:', e)
+    await safe_publish(TOPIC_GAS, khi_gas)
 
 async def K_E1_BA_BFt_n_E1_BB_91i_Wifi():
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     oled.text(str('Wifi connecting...'), 1-1, 1-1, 1); oled.show()
-    await mqtt_client.connect()
+    while not await ensure_mqtt_connection():
+        print('Reconnect: broker fail. Retrying...')
+        await asleep_ms(3000)
     # GỬI TRẠNG THÁI ONLINE NGAY KHI KẾT NỐI THÀNH CÔNG VỚI RETAIN=TRUE
-    await mqtt_client.publish(TOPIC_DEVICE, 'ONLINE', retain=True)
     oled.fill(0); oled.show()
     oled.text(str('Wifi connected'), 1-1, 1-1, 1); oled.show()
     neopix.show(0, hex_to_rgb('#00ff00'))
@@ -176,18 +247,18 @@ async def Hi_E1_BB_83n_th_E1_BB_8B_ban__C4_91_E1_BA_A7u():
         oled.text(str((''.join([str(x6) for x6 in ['Do am: ', _C4_90_E1_BB_99__E1_BA_A9m, '%']]))), 1-1, 15-1, 1); oled.show()
     oled.text(str((''.join([str(x7) for x7 in ['Anh sang:', _C3_81nh_s_C3_A1ng, '%']]))), 1-1, 30-1, 1); oled.show()
     oled.text(str((''.join([str(x8) for x8 in ['Khi gas:', khi_gas, 'ppm']]))), 1-1, 45-1, 1); oled.show()
-    await mqtt_client.publish(TOPIC_LIGHT_SENSOR, _C3_81nh_s_C3_A1ng)
+    await safe_publish(TOPIC_LIGHT_SENSOR, _C3_81nh_s_C3_A1ng)
     if dht20_ok:
-        await mqtt_client.publish(TOPIC_TEMPERATURE, Nhi_E1_BB_87t__C4_91_E1_BB_99)
-        await mqtt_client.publish(TOPIC_HUMIDITY, _C4_90_E1_BB_99__E1_BA_A9m)
-    await mqtt_client.publish(TOPIC_GAS, khi_gas)
-    await mqtt_client.publish(TOPIC_RGB_STATE, last_LED_state)
-    await mqtt_client.publish(TOPIC_FAN_STATE, last_fan_state)
-    await mqtt_client.publish(TOPIC_LIGHT_STATE, light)
-    await mqtt_client.publish(TOPIC_MOTION_LIGHT, auto_light_when_detect)
-    await mqtt_client.publish(TOPIC_MAIN_DOOR, C_E1_BB_ADa)
-    await mqtt_client.publish(TOPIC_RFID_DOOR, RFID)
-    await mqtt_client.publish(TOPIC_AUTO_LIGHT, AUTO_LIGHT)
+        await safe_publish(TOPIC_TEMPERATURE, Nhi_E1_BB_87t__C4_91_E1_BB_99)
+        await safe_publish(TOPIC_HUMIDITY, _C4_90_E1_BB_99__E1_BA_A9m)
+    await safe_publish(TOPIC_GAS, khi_gas)
+    await safe_publish(TOPIC_RGB_STATE, last_LED_state)
+    await safe_publish(TOPIC_FAN_STATE, last_fan_state)
+    await safe_publish(TOPIC_LIGHT_STATE, light)
+    await safe_publish(TOPIC_MOTION_LIGHT, auto_light_when_detect)
+    await safe_publish(TOPIC_MAIN_DOOR, C_E1_BB_ADa)
+    await safe_publish(TOPIC_RFID_DOOR, RFID)
+    await safe_publish(TOPIC_AUTO_LIGHT, AUTO_LIGHT)
 
 async def on_mqtt_msg_V_d_z_u(topic, msg):
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
@@ -250,8 +321,8 @@ rgb_led_D9 = RGBLed(D9_PIN, 4)
 
 cfg['topics'].append((TOPIC_RGB_STATE, on_mqtt_msg_f_k_q_l))
 cfg['topics'].append((TOPIC_RGB_COLOR, on_mqtt_msg_J_V_x_E))
-cfg['ssid'] = 'MEKONG STEM 5G'
-cfg['wifi_pw'] = 'Mekong2025'
+cfg['ssid'] = WIFI_SSID
+cfg['wifi_pw'] = WIFI_PASSWORD
 cfg['server'] = 'mqtt.ohstem.vn'
 cfg['port'] = 1883
 cfg['user'] = MQTT_USER
@@ -301,11 +372,11 @@ async def task_on_event_u_F_P_I():
             buzzer_D7.write_analog(round(translate(70, 0, 100, 0, 1023)))
             await asleep_ms(RFID_BEEP_MS)
             buzzer_D7.write_analog(round(translate(0, 0, 100, 0, 1023)))
-            await mqtt_client.publish(TOPIC_MAIN_DOOR, C_E1_BB_ADa)
+            await safe_publish(TOPIC_MAIN_DOOR, C_E1_BB_ADa)
             await asleep_ms(RFID_OPEN_HOLD_MS)
             servo_D2.servo_write(0)
             C_E1_BB_ADa = '0'
-            await mqtt_client.publish(TOPIC_MAIN_DOOR, C_E1_BB_ADa)
+            await safe_publish(TOPIC_MAIN_DOOR, C_E1_BB_ADa)
             neopix.show(0, hex_to_rgb('#000000'))
 
         await asleep_ms(RFID_SCAN_INTERVAL_MS)
@@ -339,6 +410,88 @@ async def task_on_message_1():
 
 mqtt_client = MQTTClient(cfg); MQTTClient.DEBUG = True
 
+mqtt_connected = False
+mqtt_reconnect_in_progress = False
+
+async def ensure_mqtt_connection():
+    global mqtt_connected, mqtt_reconnect_in_progress
+
+    if mqtt_connected:
+        return True
+
+    # Chỉ cho phép một task thực hiện reconnect; các task khác chờ kết quả.
+    if mqtt_reconnect_in_progress:
+        for i in range(60):
+            if mqtt_connected:
+                return True
+            if not mqtt_reconnect_in_progress:
+                break
+            await asleep_ms(200)
+        return mqtt_connected
+
+    mqtt_reconnect_in_progress = True
+    try:
+        if not await ensure_wifi_connection():
+            print('Reconnect: WiFi fail.')
+            return False
+
+        # WiFi có IP chưa chắc đã có đường ra internet.
+        if not check_internet():
+            if not await ensure_wifi_connection(force_reconnect=True):
+                print('Reconnect: WiFi fail after internet check.')
+                return False
+            if not check_internet():
+                print('Reconnect: internet still unavailable.')
+                return False
+
+        print('Internet OK. Connecting broker...')
+        try:
+            await mqtt_client.connect()
+            await mqtt_client.publish(TOPIC_DEVICE, 'ONLINE', retain=True)
+            mqtt_connected = True
+            print('Broker connected.')
+            return True
+        except Exception as e:
+            mqtt_connected = False
+            print('Reconnect: broker fail.', e)
+            try:
+                mqtt_client.close()
+            except Exception:
+                pass
+            return False
+    finally:
+        mqtt_reconnect_in_progress = False
+
+async def safe_publish(topic, value, retain=False):
+    if not await ensure_mqtt_connection():
+        print('MQTT publish skipped:', topic)
+        return False
+
+    try:
+        await mqtt_client.publish(topic, value, retain=retain)
+        return True
+    except Exception as e:
+        global mqtt_connected
+        mqtt_connected = False
+        print('MQTT publish failed:', topic, e)
+
+        # Thử reconnect một lần ngay tại lần publish bị lỗi.
+        if await ensure_mqtt_connection():
+            try:
+                await mqtt_client.publish(topic, value, retain=retain)
+                return True
+            except Exception as retry_error:
+                mqtt_connected = False
+                print('MQTT publish retry failed:', topic, retry_error)
+        return False
+
+async def task_mqtt_watchdog():
+    while True:
+        # Heartbeat cũng là phép kiểm tra broker. Nếu broker chết, safe_publish
+        # sẽ thực hiện lại chuỗi: WiFi -> internet -> broker.
+        await safe_publish(TOPIC_DEVICE, 'ONLINE', retain=True)
+        await asleep_ms(MQTT_WATCHDOG_INTERVAL_MS)
+
 async def task_N_h_S_S():
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     while True:
@@ -353,12 +506,12 @@ async def task_N_h_S_S():
             oled.text(str((''.join([str(x2) for x2 in ['Do am: ', _C4_90_E1_BB_99__E1_BA_A9m, '%']]))), 1-1, 15-1, 1); oled.show()
         oled.text(str((''.join([str(x3) for x3 in ['Anh sang:', _C3_81nh_s_C3_A1ng, '%']]))), 1-1, 30-1, 1); oled.show()
         oled.text(str((''.join([str(x4) for x4 in ['Khi gas:', khi_gas, 'ppm']]))), 1-1, 45-1, 1); oled.show()
-        await mqtt_client.publish(TOPIC_LIGHT_SENSOR, _C3_81nh_s_C3_A1ng)
+        await safe_publish(TOPIC_LIGHT_SENSOR, _C3_81nh_s_C3_A1ng)
         if dht20_ok:
             await asleep_ms(500)
-            await mqtt_client.publish(TOPIC_TEMPERATURE, Nhi_E1_BB_87t__C4_91_E1_BB_99)
+            await safe_publish(TOPIC_TEMPERATURE, Nhi_E1_BB_87t__C4_91_E1_BB_99)
             await asleep_ms(500)
-            await mqtt_client.publish(TOPIC_HUMIDITY, _C4_90_E1_BB_99__E1_BA_A9m)
+            await safe_publish(TOPIC_HUMIDITY, _C4_90_E1_BB_99__E1_BA_A9m)
 
 async def task_on_event_R_g_c_l():
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng, pir_motion_active
@@ -367,11 +520,11 @@ async def task_on_event_R_g_c_l():
         if (pir_D5.read_digital() == 1):
             if not pir_motion_active:
                 pir_motion_active = True
-                await mqtt_client.publish(TOPIC_MOTION, 'DETECTED')
+                await safe_publish(TOPIC_MOTION, 'DETECTED')
             if auto_light_when_detect == '1' and light != '1':
                 light = '1'
                 usb_switch_D3.write_analog(round(translate(100, 0, 100, 0, 1023)))
-                await mqtt_client.publish(TOPIC_LIGHT_STATE, light)
+                await safe_publish(TOPIC_LIGHT_STATE, light)
         else:
             pir_motion_active = False
 
@@ -409,6 +562,7 @@ async def setup():
     create_task(task_N_h_S_S())
     create_task(task_on_event_R_g_c_l())
     create_task(task_F_y_v_l())
+    create_task(task_mqtt_watchdog())
 
 async def main():
     await setup()

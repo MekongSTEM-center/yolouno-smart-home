@@ -6,7 +6,7 @@
 <title>Mekong Stem Smart Home Dashboard</title>
 <link href="favicon.ico" rel="icon" type="image/x-icon"/>
 <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-<script src="scripts.js?v=20260813-lwt-status-1"></script>
+<script src="scripts.js?v=20260814-mqtt-settings-1"></script>
 <!-- Tailwind CSS CDN -->
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <!-- Google Fonts: Inter -->
@@ -101,6 +101,59 @@
 </div>
 </div>
 <!-- END: Top Status Cards -->
+<!-- BEGIN: MQTT Connection Settings -->
+<section class="mqtt-settings-card" id="mqttSettingsCard" aria-labelledby="mqttSettingsTitle">
+<div class="mqtt-settings-card__header">
+<div>
+<p class="mqtt-settings-card__eyebrow">MQTT</p>
+<h2 id="mqttSettingsTitle">Kết nối</h2>
+</div>
+<div class="mqtt-settings-card__icon" aria-hidden="true">
+<i class="fa-solid fa-plug-circle-bolt"></i>
+</div>
+</div>
+<form class="mqtt-settings-form" id="mqttSettingsForm">
+<label class="mqtt-field">
+<span>WebSocket</span>
+<input autocomplete="url" id="mqttWebSocketInput" name="mqttWebSocket" type="url" value="wss://mqtt.ohstem.vn:8084/mqtt" required/>
+</label>
+<label class="mqtt-field">
+<span>Username</span>
+<input autocomplete="username" id="mqttUsernameInput" name="mqttUsername" type="text" required/>
+</label>
+<label class="mqtt-field">
+<span>Password</span>
+<input autocomplete="current-password" id="mqttPasswordInput" name="mqttPassword" type="password" placeholder="Để trống để giữ mật khẩu hiện tại"/>
+</label>
+<label class="mqtt-field">
+<span>Topic gốc</span>
+<input id="mqttTopicRootInput" name="mqttTopicRoot" type="text" required/>
+</label>
+<button class="mqtt-save-button" id="mqttSaveButton" type="submit">
+<i class="fa-solid fa-floppy-disk"></i>
+<span>Lưu kết nối</span>
+</button>
+</form>
+<div class="mqtt-topic-chips" aria-label="Các topic MQTT">
+<span class="mqtt-topic-chip">V1 Đèn</span>
+<span class="mqtt-topic-chip">V2 Màu RGB</span>
+<span class="mqtt-topic-chip">V3 Trạng thái RGB</span>
+<span class="mqtt-topic-chip">V4 Nhiệt độ</span>
+<span class="mqtt-topic-chip">V5 Độ ẩm</span>
+<span class="mqtt-topic-chip">V6 Ánh sáng</span>
+<span class="mqtt-topic-chip">V7 Khí gas</span>
+<span class="mqtt-topic-chip">V8 Chuyển động</span>
+<span class="mqtt-topic-chip">V9 Quạt</span>
+<span class="mqtt-topic-chip">V10 Tốc độ quạt</span>
+<span class="mqtt-topic-chip">V12 Tự động đèn</span>
+<span class="mqtt-topic-chip">V13 Đèn theo chuyển động</span>
+<span class="mqtt-topic-chip">V14 Cửa chính</span>
+<span class="mqtt-topic-chip">V15 RFID</span>
+<span class="mqtt-topic-chip">V16 Còi</span>
+<span class="mqtt-topic-chip">V20 Thiết bị</span>
+</div>
+</section>
+<!-- END: MQTT Connection Settings -->
 <!-- BEGIN: Middle Row -->
 <div class="grid grid-cols-12 gap-6">
 <!-- Living Room Controls -->

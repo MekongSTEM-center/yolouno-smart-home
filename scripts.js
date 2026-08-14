@@ -27,6 +27,7 @@ const TEMP_GRANULARITY_META = {
 };
 
 const DASHBOARD_STORAGE_KEY = 'mekongstem.smart-home.dashboard-state-v1';
+const MQTT_CONFIG_STORAGE_KEY = 'mekongstem.smart-home.mqtt-config-v1';
 
 const getEmptyStoredDashboardState = () => ({
   controls: {},
@@ -657,40 +658,64 @@ document.addEventListener('DOMContentLoaded', function() {
   const gasValue = document.getElementById('gasValue');
   const gasStatus = document.getElementById('gasStatus');
   const mqttConnectionStatus = document.getElementById('mqttConnectionStatus');
+  const mqttSettingsForm = document.getElementById('mqttSettingsForm');
+  const mqttWebSocketInput = document.getElementById('mqttWebSocketInput');
+  const mqttUsernameInput = document.getElementById('mqttUsernameInput');
+  const mqttPasswordInput = document.getElementById('mqttPasswordInput');
+  const mqttTopicRootInput = document.getElementById('mqttTopicRootInput');
+  const mqttSaveButton = document.getElementById('mqttSaveButton');
 
   if (!rgbCard || !rgbIcon || !rgbStatus || !colorButtons.length) return;
 
-  const mqttBaseTopic = 'luong873004/feeds';
-  const mqttTopic = (channel) => `${mqttBaseTopic}/${channel}`;
-  const mqttConfig = {
+  const defaultMqttConfig = {
     url: 'wss://mqtt.ohstem.vn:8084/mqtt',
     username: 'luong873004',
     password: 'mekongstem@2025',
-    lightStateTopic: mqttTopic('V1'),
-    rgbColorTopic: mqttTopic('V2'),
-    rgbStateTopic: mqttTopic('V3'),
-    temperatureTopic: mqttTopic('V4'),
-    humidityTopic: mqttTopic('V5'),
-    lightTopic: mqttTopic('V6'),
-    gasTopic: mqttTopic('V7'),
-    motionTopic: mqttTopic('V8'),
-    fanStateTopic: mqttTopic('V9'),
-    fanSpeedTopic: mqttTopic('V10'),
-    autoLightTopic: mqttTopic('V12'),
-    motionLightStateTopic: mqttTopic('V13'),
-    mainDoorStateTopic: mqttTopic('V14'),
-    autoDoorStateTopic: mqttTopic('V15'),
-    buzzerStateTopic: mqttTopic('V16'),
-    deviceStateTopic: mqttTopic('V20'),
-    lightStatusTopic: mqttTopic('V1'),
-    rgbStatusTopic: mqttTopic('V3'),
-    fanStatusTopic: mqttTopic('V9'),
-    buzzerStatusTopic: mqttTopic('V16'),
-    motionLightStatusTopic: mqttTopic('V13'),
-    mainDoorStatusTopic: mqttTopic('V14'),
-    autoDoorStatusTopic: mqttTopic('V15'),
-    autoLightStatusTopic: mqttTopic('V12'),
+    topicRoot: 'luong873004/feeds',
   };
+  let storedMqttConfig = {};
+  try {
+    const parsedMqttConfig = JSON.parse(window.localStorage.getItem(MQTT_CONFIG_STORAGE_KEY) || '{}');
+    storedMqttConfig = parsedMqttConfig && typeof parsedMqttConfig === 'object' ? parsedMqttConfig : {};
+  } catch (error) {
+    storedMqttConfig = {};
+  }
+
+  const mqttConfig = {
+    ...defaultMqttConfig,
+    ...storedMqttConfig,
+    password: storedMqttConfig.password || defaultMqttConfig.password,
+  };
+
+  const mqttTopic = (channel) => `${mqttConfig.topicRoot.replace(/\/+$/, '')}/${channel}`;
+  const refreshMqttTopics = () => {
+    Object.assign(mqttConfig, {
+      lightStateTopic: mqttTopic('V1'),
+      rgbColorTopic: mqttTopic('V2'),
+      rgbStateTopic: mqttTopic('V3'),
+      temperatureTopic: mqttTopic('V4'),
+      humidityTopic: mqttTopic('V5'),
+      lightTopic: mqttTopic('V6'),
+      gasTopic: mqttTopic('V7'),
+      motionTopic: mqttTopic('V8'),
+      fanStateTopic: mqttTopic('V9'),
+      fanSpeedTopic: mqttTopic('V10'),
+      autoLightTopic: mqttTopic('V12'),
+      motionLightStateTopic: mqttTopic('V13'),
+      mainDoorStateTopic: mqttTopic('V14'),
+      autoDoorStateTopic: mqttTopic('V15'),
+      buzzerStateTopic: mqttTopic('V16'),
+      deviceStateTopic: mqttTopic('V20'),
+      lightStatusTopic: mqttTopic('V1'),
+      rgbStatusTopic: mqttTopic('V3'),
+      fanStatusTopic: mqttTopic('V9'),
+      buzzerStatusTopic: mqttTopic('V16'),
+      motionLightStatusTopic: mqttTopic('V13'),
+      mainDoorStatusTopic: mqttTopic('V14'),
+      autoDoorStatusTopic: mqttTopic('V15'),
+    });
+  };
+  refreshMqttTopics();
 
   const dashboardStateUrl = window.__DASHBOARD_STATE_URL__ || '';
   
@@ -712,6 +737,18 @@ document.addEventListener('DOMContentLoaded', function() {
     mqttConnectionStatus.textContent = label;
     mqttConnectionStatus.style.color = color;
   };
+
+  const syncMqttSettingsForm = () => {
+    if (!mqttSettingsForm) return;
+    mqttWebSocketInput.value = mqttConfig.url;
+    mqttUsernameInput.value = mqttConfig.username;
+    mqttTopicRootInput.value = mqttConfig.topicRoot;
+    mqttPasswordInput.value = '';
+    mqttPasswordInput.placeholder = mqttConfig.password
+      ? 'Để trống để giữ mật khẩu hiện tại'
+      : 'Nhập mật khẩu MQTT';
+  };
+  syncMqttSettingsForm();
 
   const handleEspStateMessage = (message) => {
     const normalizedMessage = String(message || '').trim().toUpperCase();
@@ -890,6 +927,51 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     });
   };
+
+  if (mqttSettingsForm) {
+    mqttSettingsForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+
+      const nextUrl = mqttWebSocketInput.value.trim();
+      const nextUsername = mqttUsernameInput.value.trim();
+      const nextTopicRoot = mqttTopicRootInput.value.trim().replace(/\/+$/, '');
+      const nextPassword = mqttPasswordInput.value.trim() || mqttConfig.password;
+
+      if (!nextUrl || !nextUsername || !nextTopicRoot || !nextPassword) {
+        mqttSettingsForm.reportValidity();
+        return;
+      }
+
+      Object.assign(mqttConfig, {
+        url: nextUrl,
+        username: nextUsername,
+        password: nextPassword,
+        topicRoot: nextTopicRoot,
+      });
+      refreshMqttTopics();
+
+      try {
+        window.localStorage.setItem(MQTT_CONFIG_STORAGE_KEY, JSON.stringify({
+          url: mqttConfig.url,
+          username: mqttConfig.username,
+          password: mqttConfig.password,
+          topicRoot: mqttConfig.topicRoot,
+        }));
+      } catch (error) {
+        console.warn('Không thể lưu cấu hình MQTT:', error);
+      }
+
+      syncMqttSettingsForm();
+      updateMqttStatus('Đang áp dụng cấu hình MQTT...', '#7ca8ea');
+
+      if (mqttClient) {
+        mqttClient.end(true);
+        mqttClient = null;
+        isMqttConnected = false;
+      }
+      connectMqtt();
+    });
+  }
 
   const publishMqttMessage = (topic, message, onPublished) => {
     connectMqtt();

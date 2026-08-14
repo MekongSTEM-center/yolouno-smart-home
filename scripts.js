@@ -713,9 +713,15 @@ document.addEventListener('DOMContentLoaded', function() {
       motionLightStatusTopic: mqttTopic('V13'),
       mainDoorStatusTopic: mqttTopic('V14'),
       autoDoorStatusTopic: mqttTopic('V15'),
+      autoLightStatusTopic: mqttTopic('V12'),
     });
   };
   refreshMqttTopics();
+  console.info('MQTT topic mapping:', {
+    root: mqttConfig.topicRoot,
+    light: mqttConfig.lightStateTopic,
+    device: mqttConfig.deviceStateTopic,
+  });
 
   const dashboardStateUrl = window.__DASHBOARD_STATE_URL__ || '';
   
@@ -778,7 +784,39 @@ document.addEventListener('DOMContentLoaded', function() {
     mqttConfig.autoDoorStatusTopic,
     mqttConfig.lightStatusTopic,
     mqttConfig.autoLightStatusTopic,
-  ].filter((topic, index, topics) => topics.indexOf(topic) === index);
+  ].filter(Boolean).filter((topic, index, topics) => topics.indexOf(topic) === index);
+
+  const requiredMqttTopicKeys = [
+    'lightStateTopic',
+    'rgbColorTopic',
+    'rgbStateTopic',
+    'temperatureTopic',
+    'humidityTopic',
+    'lightTopic',
+    'gasTopic',
+    'motionTopic',
+    'fanStateTopic',
+    'fanSpeedTopic',
+    'autoLightTopic',
+    'motionLightStateTopic',
+    'mainDoorStateTopic',
+    'autoDoorStateTopic',
+    'buzzerStateTopic',
+    'deviceStateTopic',
+    'lightStatusTopic',
+    'rgbStatusTopic',
+    'fanStatusTopic',
+    'buzzerStatusTopic',
+    'motionLightStatusTopic',
+    'mainDoorStatusTopic',
+    'autoDoorStatusTopic',
+    'autoLightStatusTopic',
+  ];
+
+  const getMissingMqttTopicKeys = () => requiredMqttTopicKeys.filter((key) => {
+    const topic = mqttConfig[key];
+    return typeof topic !== 'string' || !topic.trim();
+  });
 
   const readBinaryState = (message) => {
     const normalized = String(message || '').trim().toUpperCase();
@@ -790,6 +828,8 @@ document.addEventListener('DOMContentLoaded', function() {
   const applyControlStateMessage = (topic, message) => {
     const state = readBinaryState(message);
     if (state === null) return;
+
+    resolveControlCommand(topic, state, message);
 
     if (topic === mqttConfig.rgbStatusTopic) {
       if (state) {
@@ -872,12 +912,26 @@ document.addEventListener('DOMContentLoaded', function() {
       // can never be overwritten by the subscribe callback.
       updateMqttStatus('Đã kết nối broker — chờ trạng thái ESP32', '#7ca8ea');
       
-      mqttClient.subscribe(getMqttSubscribeTopics(), { qos: 0 }, (error) => {
+      const missingTopicKeys = getMissingMqttTopicKeys();
+      const subscribeTopics = getMqttSubscribeTopics();
+      if (missingTopicKeys.length || !subscribeTopics.length) {
+        isMqttConnected = false;
+        updateMqttStatus('Thiếu cấu hình topic MQTT', '#b45309');
+        console.error('MQTT topic configuration is incomplete:', {
+          missingTopicKeys,
+          subscribeTopics,
+        });
+        return;
+      }
+
+      mqttClient.subscribe(subscribeTopics, { qos: 0 }, (error) => {
         if (error) {
+          isMqttConnected = false;
           updateMqttStatus('Lỗi nghe topic ESP32', '#b45309');
           console.warn('MQTT subscribe error:', error.message);
           return;
         }
+        console.info('MQTT subscribed:', subscribeTopics);
       });
       
       if (pendingMqttMessages.size) {
@@ -992,10 +1046,64 @@ document.addEventListener('DOMContentLoaded', function() {
     console.info('MQTT publish:', topic, message);
   };
 
+  const pendingControlCommands = new Map();
+  const CONTROL_ACK_TIMEOUT_MS = 3000;
+
+  const trackControlCommand = (topic, message) => {
+    const expectedState = readBinaryState(message);
+    if (expectedState === null) return;
+
+    const previous = pendingControlCommands.get(topic);
+    if (previous?.timeoutId) window.clearTimeout(previous.timeoutId);
+
+    const timeoutId = window.setTimeout(() => {
+      const pending = pendingControlCommands.get(topic);
+      if (pending?.message === String(message)) {
+        console.warn('MQTT control acknowledgement timeout:', {
+          topic,
+          expectedPayload: String(message),
+        });
+        pendingControlCommands.delete(topic);
+      }
+    }, CONTROL_ACK_TIMEOUT_MS);
+
+    pendingControlCommands.set(topic, {
+      message: String(message),
+      expectedState,
+      timeoutId,
+      sentAt: Date.now(),
+    });
+  };
+
+  function resolveControlCommand(topic, state, message) {
+    const pending = pendingControlCommands.get(topic);
+    if (!pending) return;
+
+    const normalizedMessage = String(message);
+    if (pending.expectedState !== state) {
+      console.warn('MQTT control acknowledgement mismatch:', {
+        topic,
+        expectedPayload: pending.message,
+        receivedPayload: normalizedMessage,
+      });
+      return;
+    }
+
+    window.clearTimeout(pending.timeoutId);
+    pendingControlCommands.delete(topic);
+    console.info('MQTT control state observed:', {
+      topic,
+      payload: normalizedMessage,
+      latencyMs: Date.now() - pending.sentAt,
+    });
+  }
+
   const toBinaryStatePayload = (isOn) => (isOn ? '1' : '0');
 
   const sendRgbState = (isOn) => {
-    publishMqttMessage(mqttConfig.rgbStateTopic, toBinaryStatePayload(isOn));
+    const payload = toBinaryStatePayload(isOn);
+    trackControlCommand(mqttConfig.rgbStateTopic, payload);
+    publishMqttMessage(mqttConfig.rgbStateTopic, payload);
   };
 
   const sendRgbColor = (color) => {
@@ -1003,35 +1111,50 @@ document.addEventListener('DOMContentLoaded', function() {
   };
 
   const sendFanState = (isOn) => {
-    publishMqttMessage(mqttConfig.fanStateTopic, toBinaryStatePayload(isOn));
+    const payload = toBinaryStatePayload(isOn);
+    trackControlCommand(mqttConfig.fanStateTopic, payload);
+    publishMqttMessage(mqttConfig.fanStateTopic, payload);
   };
 
   const sendFanSpeed = (speed) => {
-    publishMqttMessage(mqttConfig.fanSpeedTopic, String(speed));
+    const payload = String(speed);
+    publishMqttMessage(mqttConfig.fanSpeedTopic, payload);
   };
 
   const sendBuzzerState = (isOn) => {
-    publishMqttMessage(mqttConfig.buzzerStateTopic, toBinaryStatePayload(isOn));
+    const payload = toBinaryStatePayload(isOn);
+    trackControlCommand(mqttConfig.buzzerStateTopic, payload);
+    publishMqttMessage(mqttConfig.buzzerStateTopic, payload);
   };
 
   const sendMotionLightState = (isOn) => {
-    publishMqttMessage(mqttConfig.motionLightStateTopic, toBinaryStatePayload(isOn));
+    const payload = toBinaryStatePayload(isOn);
+    trackControlCommand(mqttConfig.motionLightStateTopic, payload);
+    publishMqttMessage(mqttConfig.motionLightStateTopic, payload);
   };
 
   const sendMainDoorState = (isOn) => {
-    publishMqttMessage(mqttConfig.mainDoorStateTopic, toBinaryStatePayload(isOn));
+    const payload = toBinaryStatePayload(isOn);
+    trackControlCommand(mqttConfig.mainDoorStateTopic, payload);
+    publishMqttMessage(mqttConfig.mainDoorStateTopic, payload);
   };
 
   const sendAutoDoorState = (isOn) => {
-    publishMqttMessage(mqttConfig.autoDoorStateTopic, toBinaryStatePayload(isOn));
+    const payload = toBinaryStatePayload(isOn);
+    trackControlCommand(mqttConfig.autoDoorStateTopic, payload);
+    publishMqttMessage(mqttConfig.autoDoorStateTopic, payload);
   };
 
   const sendLightState = (isOn) => {
-    publishMqttMessage(mqttConfig.lightStateTopic, toBinaryStatePayload(isOn));
+    const payload = toBinaryStatePayload(isOn);
+    trackControlCommand(mqttConfig.lightStateTopic, payload);
+    publishMqttMessage(mqttConfig.lightStateTopic, payload);
   };
 
   const sendAutoLightState = (isOn) => {
-    publishMqttMessage(mqttConfig.autoLightTopic, toBinaryStatePayload(isOn));
+    const payload = toBinaryStatePayload(isOn);
+    trackControlCommand(mqttConfig.autoLightTopic, payload);
+    publishMqttMessage(mqttConfig.autoLightTopic, payload);
   };
 
   const getFixedScheduleTarget = (timeValue) => {

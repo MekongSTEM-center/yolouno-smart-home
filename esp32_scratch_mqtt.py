@@ -166,6 +166,7 @@ GAS_READ_INTERVAL_MS = 1000
 LOCAL_STATE_ECHO_WINDOW_MS = 1500
 DOOR_COMMAND_DEDUP_WINDOW_MS = 500
 BUZZER_EVENT_DEDUP_WINDOW_MS = 500
+MOTION_LIGHT_OFF_DELAY_MS = 25000
 
 MQTT_COMMAND_CHANNELS = (
     'V1', 'V3', 'V9', 'V10', 'V12', 'V13', 'V14', 'V15', 'V16'
@@ -308,7 +309,7 @@ async def K_E1_BA_BFt_n_E1_BB_91i_Wifi():
     await asleep_ms(1000)
 
 async def Kh_E1_BB_9Fi__C4_91_E1_BB_99ng():
-    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng, buzzer_manual_on, buzzer_alarm_tone_on, buzzer_beep_active, gas_alarm_active, gas_alarm_task, last_door_command, last_door_command_ms
+    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng, buzzer_manual_on, buzzer_alarm_tone_on, buzzer_beep_active, gas_alarm_active, gas_alarm_task, last_door_command, last_door_command_ms, motion_light_owns_light, motion_light_hold_active, motion_light_last_detected_ms, motion_light_suppressed_until_clear, auto_light_requires_on
     RFID = '1'
     AUTO_LIGHT = '0'
     last_fan_state = '0'
@@ -325,6 +326,11 @@ async def Kh_E1_BB_9Fi__C4_91_E1_BB_99ng():
     gas_alarm_task = None
     last_door_command = None
     last_door_command_ms = 0
+    motion_light_owns_light = False
+    motion_light_hold_active = False
+    motion_light_last_detected_ms = None
+    motion_light_suppressed_until_clear = False
+    auto_light_requires_on = False
     servo_D2.servo_write(0)
     usb_switch_D3.write_analog(round(translate(0, 0, 100, 0, 1023)))
     minifan_D4.write_analog(round(translate(0, 0, 100, 0, 1023)))
@@ -360,16 +366,30 @@ async def on_mqtt_msg_y_z_p_e(topic, msg):
     if last_fan_state == '1':
         minifan_D4.write_analog(round(translate(speed, 0, 100, 0, 1023)))
 
+def set_main_light_output(state):
+    global light
+    light = '1' if state == '1' or state is True else '0'
+    output_percent = 100 if light == '1' else 0
+    usb_switch_D3.write_analog(round(translate(output_percent, 0, 100, 0, 1023)))
+
+async def set_automatic_light_output(state):
+    desired = '1' if state == '1' or state is True else '0'
+    if light == desired:
+        return False
+    set_main_light_output(desired)
+    await publish_device_state(TOPIC_LIGHT_STATE, light)
+    return True
+
 async def on_mqtt_msg_O_N_P_T(topic, msg):
-    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
+    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng, motion_light_owns_light, motion_light_hold_active, motion_light_last_detected_ms, motion_light_suppressed_until_clear
     msg = log_mqtt_message(topic, msg)
     if consume_local_state_echo(topic, msg):
         return
-    light = msg
-    if light == '1':
-        usb_switch_D3.write_analog(round(translate(100, 0, 100, 0, 1023)))
-    else:
-        usb_switch_D3.write_analog(round(translate(0, 0, 100, 0, 1023)))
+    motion_light_owns_light = False
+    motion_light_hold_active = False
+    motion_light_last_detected_ms = None
+    motion_light_suppressed_until_clear = pir_motion_active
+    set_main_light_output(msg)
 
 async def Hi_E1_BB_83n_th_E1_BB_8B_ban__C4_91_E1_BA_A7u():
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
@@ -398,21 +418,27 @@ async def Hi_E1_BB_83n_th_E1_BB_8B_ban__C4_91_E1_BA_A7u():
     await publish_device_state(TOPIC_AUTO_LIGHT, AUTO_LIGHT)
 
 async def on_mqtt_msg_V_d_z_u(topic, msg):
-    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
+    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng, auto_light_requires_on
     msg = log_mqtt_message(topic, msg)
     if consume_local_state_echo(topic, msg):
         return
     AUTO_LIGHT = msg
+    if AUTO_LIGHT != '1':
+        auto_light_requires_on = False
 
 async def on_mqtt_msg_motion_light(topic, msg):
-    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
+    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng, motion_light_owns_light, motion_light_hold_active, motion_light_last_detected_ms, motion_light_suppressed_until_clear
     msg = log_mqtt_message(topic, msg)
     if consume_local_state_echo(topic, msg):
         return
     if msg == '1':
         auto_light_when_detect = '1'
+        motion_light_suppressed_until_clear = False
     else:
         auto_light_when_detect = '0'
+        motion_light_owns_light = False
+        motion_light_hold_active = False
+        motion_light_last_detected_ms = None
 
 async def on_mqtt_msg_buzzer_manual(topic, msg):
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng, buzzer_manual_on
@@ -470,6 +496,14 @@ _C4_90_E1_BB_99__E1_BA_A9m = None
 _C3_81nh_s_C3_A1ng = None
 gas_alarm_active = False
 pir_motion_active = False
+# Only a PIR transition from an off light grants permission for the timeout to
+# turn it off. The hold remains active while motion is detected and for 25s
+# afterwards so the ambient-light task cannot switch the output off early.
+motion_light_owns_light = False
+motion_light_hold_active = False
+motion_light_last_detected_ms = None
+motion_light_suppressed_until_clear = False
+auto_light_requires_on = False
 rfid_card_active = False
 buzzer_manual_on = False
 buzzer_output_state = None
@@ -722,32 +756,61 @@ async def task_N_h_S_S():
             await safe_publish(TOPIC_HUMIDITY, _C4_90_E1_BB_99__E1_BA_A9m)
 
 async def task_on_event_R_g_c_l():
-    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng, pir_motion_active
+    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng, pir_motion_active, motion_light_owns_light, motion_light_hold_active, motion_light_last_detected_ms, motion_light_suppressed_until_clear
     while True:
         await asleep_ms(100)
-        if (pir_D5.read_digital() == 1):
+        now = time.ticks_ms()
+        if pir_D5.read_digital() == 1:
             if not pir_motion_active:
                 pir_motion_active = True
                 await safe_publish(TOPIC_MOTION, 'DETECTED')
-            if auto_light_when_detect == '1' and light != '1':
-                light = '1'
-                usb_switch_D3.write_analog(round(translate(100, 0, 100, 0, 1023)))
-                await publish_device_state(TOPIC_LIGHT_STATE, light)
+
+            if auto_light_when_detect == '1' and not motion_light_suppressed_until_clear:
+                if not motion_light_hold_active:
+                    motion_light_hold_active = True
+                    motion_light_owns_light = light != '1'
+                    if motion_light_owns_light:
+                        await set_automatic_light_output(True)
+                motion_light_last_detected_ms = now
         else:
             pir_motion_active = False
+            motion_light_suppressed_until_clear = False
+
+            timer_expired = (
+                auto_light_when_detect == '1' and
+                motion_light_hold_active and
+                motion_light_last_detected_ms is not None and
+                time.ticks_diff(now, motion_light_last_detected_ms) >= MOTION_LIGHT_OFF_DELAY_MS
+            )
+            if timer_expired:
+                should_turn_off = (
+                    motion_light_owns_light and
+                    not (AUTO_LIGHT == '1' and auto_light_requires_on)
+                )
+                motion_light_owns_light = False
+                motion_light_hold_active = False
+                motion_light_last_detected_ms = None
+                if should_turn_off:
+                    await set_automatic_light_output(False)
 
 async def task_F_y_v_l():
-    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
+    global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng, auto_light_requires_on
     while True:
         await asleep_ms(5000)
         if AUTO_LIGHT == '1':
             _C3_81nh_s_C3_A1ng = light_A0.read_analog_percent()
             if _C3_81nh_s_C3_A1ng < 50:
-                usb_switch_D3.write_analog(round(translate(100, 0, 100, 0, 1023)))
+                auto_light_requires_on = True
             elif _C3_81nh_s_C3_A1ng > 70:
-                usb_switch_D3.write_analog(round(translate(0, 0, 100, 0, 1023)))
+                auto_light_requires_on = False
+
+            if auto_light_requires_on:
+                await set_automatic_light_output(True)
+            elif not motion_light_hold_active:
+                await set_automatic_light_output(False)
         else:
             AUTO_LIGHT = '0'
+            auto_light_requires_on = False
 
 async def setup():
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
@@ -784,5 +847,3 @@ async def main():
 connect_custom_wifi()
 
 run_loop(main())
-
-

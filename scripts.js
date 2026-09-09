@@ -2578,7 +2578,8 @@ document.addEventListener('DOMContentLoaded', function() {
       items: [
         'Công tắc này gửi <code>V13</code> để bật chế độ đèn theo PIR.',
         'PIR ở chân <code>D5</code> gửi <code>V8=DETECTED</code> khi phát hiện người.',
-        'Nếu <code>V13=1</code>, ESP32 bật đèn chính <code>D3/V1</code> khi PIR thấy người; code hiện tại không tự tắt khi hết chuyển động.',
+        'Nếu <code>V13=1</code>, ESP32 bật đèn chính <code>D3/V1</code> khi PIR thấy người và tự tắt sau 25 giây không còn chuyển động.',
+        'Mỗi chuyển động mới đặt lại bộ đếm; đèn bật thủ công hoặc đang được giữ bởi chế độ trời tối sẽ không bị bộ đếm PIR tắt.',
       ],
     },
     system: {

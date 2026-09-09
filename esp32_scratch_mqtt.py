@@ -15,10 +15,10 @@ try:
 except ImportError:
     import socket
 
-WIFI_SSID = 'MEKONG STEM 5G'
-WIFI_PASSWORD = 'Mekong2025'
-INTERNET_TEST_HOST = 'example.com'
-INTERNET_TEST_PORT = 80
+WIFI_SSID = 'BNG Tech'
+WIFI_PASSWORD = ''
+INTERNET_TEST_HOST = 'mqtt.ohstem.vn'
+INTERNET_TEST_PORT = 1883
 INTERNET_TEST_TIMEOUT_S = 3
 WIFI_CONNECT_TIMEOUT_S = 20
 MQTT_WATCHDOG_INTERVAL_MS = 15000
@@ -288,13 +288,22 @@ async def publish_gas_safe():
 
 async def K_E1_BA_BFt_n_E1_BB_91i_Wifi():
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
-    oled.text(str('Wifi connecting...'), 1-1, 1-1, 1); oled.show()
+
+    oled.fill(0)
+    oled.text('Wifi connecting...', 0, 0, 1)
+    oled.text(WIFI_SSID, 0, 12, 1)
+    oled.show()
+
     while not await ensure_mqtt_connection():
         print('Reconnect: broker fail. Retrying...')
         await asleep_ms(3000)
+
     # GỬI TRẠNG THÁI ONLINE NGAY KHI KẾT NỐI THÀNH CÔNG VỚI RETAIN=TRUE
-    oled.fill(0); oled.show()
-    oled.text(str('Wifi connected'), 1-1, 1-1, 1); oled.show()
+    oled.fill(0)
+    oled.text('Wifi connected', 0, 0, 1)
+    oled.text(WIFI_SSID, 0, 12, 1)
+    oled.show()
+
     neopix.show(0, hex_to_rgb('#00ff00'))
     await asleep_ms(1000)
 
@@ -772,7 +781,8 @@ async def main():
     while True:
         await asleep_ms(100)
 
-# --- CHẠY HÀM KẾT NỐI WIFI TRƯỚC TẤT CẢ MỌI THỨ Ở ĐÂY ---
 connect_custom_wifi()
 
 run_loop(main())
+
+

@@ -166,7 +166,8 @@ GAS_READ_INTERVAL_MS = 1000
 LOCAL_STATE_ECHO_WINDOW_MS = 1500
 DOOR_COMMAND_DEDUP_WINDOW_MS = 500
 BUZZER_EVENT_DEDUP_WINDOW_MS = 500
-MOTION_LIGHT_OFF_DELAY_MS = 25000
+MOTION_LIGHT_OFF_DELAY_MS = 10000
+SENSOR_REFRESH_INTERVAL_MS = 10000
 
 MQTT_COMMAND_CHANNELS = (
     'V1', 'V3', 'V9', 'V10', 'V12', 'V13', 'V14', 'V15', 'V16'
@@ -497,7 +498,7 @@ _C3_81nh_s_C3_A1ng = None
 gas_alarm_active = False
 pir_motion_active = False
 # Only a PIR transition from an off light grants permission for the timeout to
-# turn it off. The hold remains active while motion is detected and for 25s
+# turn it off. The hold remains active while motion is detected and for 10s
 # afterwards so the ambient-light task cannot switch the output off early.
 motion_light_owns_light = False
 motion_light_hold_active = False
@@ -737,7 +738,8 @@ async def task_mqtt_watchdog():
 async def task_N_h_S_S():
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     while True:
-        await asleep_ms(30000)
+        await asleep_ms(SENSOR_REFRESH_INTERVAL_MS)
+        _C3_81nh_s_C3_A1ng = light_A0.read_analog_percent()
         dht20_ok = await read_dht20_safe()
         oled.fill(0); oled.show()
         if Nhi_E1_BB_87t__C4_91_E1_BB_99 is None or _C4_90_E1_BB_99__E1_BA_A9m is None:

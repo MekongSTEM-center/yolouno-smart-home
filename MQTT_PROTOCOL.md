@@ -23,7 +23,7 @@ verified with MQTT Explorer.
 | V9 | Fan state | Dashboard → firmware; firmware → dashboard state | `1` / `0` | One output change |
 | V10 | Fan speed | Dashboard → firmware | `0`–`100` | One PWM update |
 | V12 | Automatic light by sensor | Dashboard → firmware; firmware → dashboard state | `1` / `0` | One mode change |
-| V13 | Automatic light by motion | Dashboard → firmware; firmware → dashboard state | `1` / `0` | Enable/disable motion light with a 25-second inactivity timeout |
+| V13 | Automatic light by motion | Dashboard → firmware; firmware → dashboard state | `1` / `0` | Enable/disable motion light with a 10-second inactivity timeout |
 | V14 | Main door | Dashboard → firmware; firmware → dashboard state | `1` / `0` | One servo action and one beep |
 | V15 | RFID mode | Dashboard → firmware; firmware → dashboard state | `1` / `0` | One mode change |
 | V16 | Buzzer | Dashboard → firmware | `1` / `0` | One manual output change |
@@ -54,8 +54,8 @@ V16 controls the manual buzzer state without creating another alarm task.
    configuration.
 6. With `V13=1` and the main light initially off, trigger the PIR and confirm
    `V1=1`. Confirm the light remains on while motion continues, then publishes
-   `V1=0` once after 25 seconds without motion. Triggering the PIR again before
-   expiry must restart the 25-second interval.
+   `V1=0` once after 10 seconds without motion. Triggering the PIR again before
+   expiry must restart the 10-second interval.
 
 For V14 and V15, count separately: dashboard command, firmware command callback,
 firmware state publish, and ignored local state echo. The local echo must never

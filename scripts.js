@@ -2506,7 +2506,8 @@ document.addEventListener('DOMContentLoaded', function() {
       title: 'Chỉ số nhanh',
       icon: 'fa-gauge-high',
       items: [
-        'DHT20 gửi nhiệt độ qua <code>V4</code>, độ ẩm qua <code>V5</code> và cảm biến ánh sáng <code>A0</code> gửi <code>V6</code> khoảng 10 giây/lần.',
+        'DHT20 gửi nhiệt độ qua <code>V4</code> và độ ẩm qua <code>V5</code> khoảng 30 giây/lần.',
+        'Cảm biến ánh sáng ở <code>A0</code> gửi <code>V6</code> theo phần trăm giá trị analog.',
         'Cảm biến gas MQ2 ở <code>A2</code> gửi <code>V7</code> mỗi giây; ESP32 kích còi khi vượt <code>200 ppm</code>.',
       ],
     },
@@ -2577,7 +2578,7 @@ document.addEventListener('DOMContentLoaded', function() {
       items: [
         'Công tắc này gửi <code>V13</code> để bật chế độ đèn theo PIR.',
         'PIR ở chân <code>D5</code> gửi <code>V8=DETECTED</code> khi phát hiện người.',
-        'Nếu <code>V13=1</code>, ESP32 bật đèn chính <code>D3/V1</code> khi PIR thấy người và tự tắt sau 10 giây không còn chuyển động.',
+        'Nếu <code>V13=1</code>, ESP32 bật đèn chính <code>D3/V1</code> khi PIR thấy người và tự tắt sau 25 giây không còn chuyển động.',
         'Mỗi chuyển động mới đặt lại bộ đếm; đèn bật thủ công hoặc đang được giữ bởi chế độ trời tối sẽ không bị bộ đếm PIR tắt.',
       ],
     },
@@ -2604,7 +2605,7 @@ document.addEventListener('DOMContentLoaded', function() {
       icon: 'fa-chart-line',
       items: [
         'Biểu đồ dùng nhiệt độ từ DHT20 mà ESP32 gửi qua <code>V4</code>.',
-        'ESP32 cập nhật DHT20 khoảng 10 giây/lần; mỗi giá trị mới sẽ được thêm vào đường biểu đồ.',
+        'ESP32 cập nhật DHT20 khoảng 30 giây/lần; mỗi giá trị mới sẽ được thêm vào đường biểu đồ.',
         'Bộ chọn giây, phút, giờ chỉ đổi cách gom dữ liệu trên web, không đổi tần suất ESP32 gửi dữ liệu.',
       ],
     },

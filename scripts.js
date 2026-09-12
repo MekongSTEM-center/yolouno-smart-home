@@ -600,6 +600,15 @@ document.addEventListener('DOMContentLoaded', function() {
   const fanToggle = document.getElementById('fanToggle');
   const fanSpeedSlider = document.getElementById('fanSpeedSlider');
   const fanSpeedValue = document.getElementById('fanSpeedValue');
+  const FAN_MAX_OUTPUT_PERCENT = 80;
+  const fanUiSpeedToOutput = (speed) => {
+    const normalizedSpeed = Math.min(100, Math.max(0, Number(speed) || 0));
+    return Math.round((normalizedSpeed * FAN_MAX_OUTPUT_PERCENT) / 100);
+  };
+  const fanOutputSpeedToUi = (speed) => {
+    const normalizedSpeed = Math.min(FAN_MAX_OUTPUT_PERCENT, Math.max(0, Number(speed) || 0));
+    return Math.round((normalizedSpeed * 100) / FAN_MAX_OUTPUT_PERCENT);
+  };
   const fanSettingsButton = document.getElementById('fanSettingsButton');
   const fanSettingsModal = document.getElementById('fanSettingsModal');
   const fanSettingsClose = document.getElementById('fanSettingsClose');
@@ -866,13 +875,13 @@ document.addEventListener('DOMContentLoaded', function() {
   const applyFanSpeedMessage = (message) => {
     if (!fanSpeedSlider) return;
 
-    const speed = Number.parseInt(String(message || '').trim(), 10);
-    if (!Number.isFinite(speed)) return;
+    const outputSpeed = Number.parseInt(String(message || '').trim(), 10);
+    if (!Number.isFinite(outputSpeed)) return;
 
-    const normalizedSpeed = Math.min(100, Math.max(0, speed));
-    fanSpeedSlider.value = String(normalizedSpeed);
+    const uiSpeed = fanOutputSpeedToUi(outputSpeed);
+    fanSpeedSlider.value = String(uiSpeed);
     if (fanSpeedValue) {
-      fanSpeedValue.textContent = `${normalizedSpeed}%`;
+      fanSpeedValue.textContent = `${uiSpeed}%`;
     }
     updateFanUi(fanToggle ? fanToggle.checked : true);
   };
@@ -1099,7 +1108,7 @@ document.addEventListener('DOMContentLoaded', function() {
   };
 
   const sendFanSpeed = (speed) => {
-    const payload = String(speed);
+    const payload = String(fanUiSpeedToOutput(speed));
     publishMqttMessage(mqttConfig.fanSpeedTopic, payload);
   };
 
@@ -2541,7 +2550,7 @@ document.addEventListener('DOMContentLoaded', function() {
       icon: 'fa-fan',
       items: [
         'Công tắc quạt gửi <code>V9</code> để bật/tắt quạt mini ở chân <code>D4</code>.',
-        'Thanh trượt gửi <code>V10</code> từ <code>0</code> đến <code>100</code>; ESP32 đổi thành PWM cho quạt.',
+        'Thanh trượt hiển thị từ <code>0%</code> đến <code>100%</code>; web quy đổi sang <code>V10</code> từ <code>0</code> đến tối đa <code>80</code> trước khi ESP32 tạo PWM cho quạt.',
         'Khi bật quạt, web gửi tốc độ hiện tại rồi gửi <code>V9=1</code> để ESP32 chạy đúng mức đã chọn.',
       ],
     },

@@ -21,7 +21,7 @@ verified with MQTT Explorer.
 | V7 | Gas sensor | Firmware → dashboard | ppm | May start one gas alarm task |
 | V8 | Motion | Firmware → dashboard | `DETECTED` | No duplicate alert event |
 | V9 | Fan state | Dashboard → firmware; firmware → dashboard state | `1` / `0` | One output change |
-| V10 | Fan speed | Dashboard → firmware | `0`–`100` | One PWM update |
+| V10 | Fan speed | Dashboard → firmware | `0`–`80` (scaled from the dashboard's `0%`–`100%` slider) | One PWM update, capped at 80% output |
 | V12 | Automatic light by sensor | Dashboard → firmware; firmware → dashboard state | `1` / `0` | One mode change |
 | V13 | Automatic light by motion | Dashboard → firmware; firmware → dashboard state | `1` / `0` | Enable/disable motion light with a 25-second inactivity timeout |
 | V14 | Main door | Dashboard → firmware; firmware → dashboard state | `1` / `0` | One servo action and one beep |

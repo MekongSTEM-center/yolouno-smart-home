@@ -17,7 +17,7 @@ except ImportError:
     import socket
 
 WIFI_SSID = 'BNG Tech'
-WIFI_PASSWORD = ''
+WIFI_PASSWORD = 'bng@2025'
 INTERNET_TEST_HOST = 'mqtt.ohstem.vn'
 INTERNET_TEST_PORT = 1883
 INTERNET_TEST_TIMEOUT_S = 3
@@ -749,6 +749,7 @@ async def task_wifi_watchdog():
             print('WiFi disconnected. Reconnecting...')
             mqtt_connected = False
             if await ensure_mqtt_connection():
+                neopix.show(0, hex_to_rgb('#00ff00'))
                 print('WiFi and broker reconnected.')
             else:
                 print('WiFi reconnect failed. Retrying in 5 seconds...')

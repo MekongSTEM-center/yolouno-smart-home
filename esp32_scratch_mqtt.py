@@ -4,6 +4,7 @@ from MQ2 import *
 from ssd1306 import *
 from pins import *
 from yolo_uno import *
+from wifi import *
 from mqtt_as import MQTTClient, config
 from dht20 import *
 
@@ -21,9 +22,11 @@ INTERNET_TEST_HOST = 'mqtt.ohstem.vn'
 INTERNET_TEST_PORT = 1883
 INTERNET_TEST_TIMEOUT_S = 3
 WIFI_CONNECT_TIMEOUT_S = 20
+WIFI_WATCHDOG_INTERVAL_MS = 5000
 MQTT_WATCHDOG_INTERVAL_MS = 15000
 
 wlan = network.WLAN(network.STA_IF)
+wifi = Wifi()
 
 # --- HÀM KẾT NỐI WIFI CỦA BẠN ĐÃ ĐƯỢC ĐÓNG GÓI ---
 def connect_custom_wifi():
@@ -734,6 +737,24 @@ async def task_mqtt_watchdog():
         await safe_publish(TOPIC_DEVICE, 'ONLINE', retain=True)
         await asleep_ms(MQTT_WATCHDOG_INTERVAL_MS)
 
+async def task_wifi_watchdog():
+    global mqtt_connected
+
+    while True:
+        await asleep_ms(WIFI_WATCHDOG_INTERVAL_MS)
+        try:
+            if wifi.isconnected():
+                continue
+
+            print('WiFi disconnected. Reconnecting...')
+            mqtt_connected = False
+            if await ensure_mqtt_connection():
+                print('WiFi and broker reconnected.')
+            else:
+                print('WiFi reconnect failed. Retrying in 5 seconds...')
+        except Exception as e:
+            print('WiFi watchdog error:', e)
+
 async def task_N_h_S_S():
     global khi_gas, RFID, Nhi_E1_BB_87t__C4_91_E1_BB_99, last_fan_state, speed, light, AUTO_LIGHT, auto_light_when_detect, C_E1_BB_ADa, last_LED_state, color, _C4_90_E1_BB_99__E1_BA_A9m, _C3_81nh_s_C3_A1ng
     while True:
@@ -837,6 +858,7 @@ async def setup():
     create_task(task_N_h_S_S())
     create_task(task_on_event_R_g_c_l())
     create_task(task_F_y_v_l())
+    create_task(task_wifi_watchdog())
     create_task(task_mqtt_watchdog())
 
 async def main():
